@@ -130,8 +130,9 @@ class Scenario(BaseScenario):
         # Get the minimum distance and its index
         min_distance, min_index = torch.min(distances, dim=-1)
         covered_targets = (min_distance < self._covering_range).type(torch.int)
-        min_distance -= min_distance.min(-1, keepdim=True)[0]
-        min_distance /= min_distance.max(-1, keepdim=True)[0]
+        if self.world.batch_dim > 1:
+            min_distance -= min_distance.min(-1, keepdim=True)[0]
+            min_distance /= min_distance.max(-1, keepdim=True)[0]
         min_distance = 1 - min_distance
         min_distance[covered_targets != 0] = 100
         self.respawn_targets(agent)

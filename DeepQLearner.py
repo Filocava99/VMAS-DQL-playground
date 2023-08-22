@@ -31,6 +31,7 @@ class DeepQLearner:
         self.targetPolicy = DeepQLearner.policy_from_network(self.policy_network, action_space)
         self.behaviouralPolicy = DeepQLearner.policy_from_network(self.policy_network, action_space)
         self.optimizer = optim.RMSprop(self.policy_network.parameters(), self.learning_rate)
+        self.last_loss = 0
 
     def record(self, state, action, reward, next_state):
         self.memory.insert(state, action, reward, next_state)
@@ -68,6 +69,7 @@ class DeepQLearner:
             loss = criterion(state_action_value, expected_value.unsqueeze(1))
             # Log scalar
             loss.backward()
+            self.last_loss = loss.item()
             torch.nn.utils.clip_grad_value_(self.policy_network.parameters(), 1.0)
             self.optimizer.step()
             self.updates += 1
