@@ -20,10 +20,10 @@ if typing.TYPE_CHECKING:
 class Scenario(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs) -> World:
         self.n_agents = kwargs.get("n_agents", 5)
-        self.target_distance = 20.0
+        self.target_distance = 5
+        self._lidar_range = kwargs.get("lidar_range", 10)
         self.n_targets = kwargs.get("n_targets", 7)
         self._min_dist_between_entities = kwargs.get("min_dist_between_entities", 0.2)
-        self._lidar_range = kwargs.get("lidar_range", 0.35)
         self._covering_range = kwargs.get("covering_range", 0.25)
         self._agents_per_target = kwargs.get("agents_per_target", 1)
         self.targets_respawn = kwargs.get("targets_respawn", True)
@@ -67,7 +67,7 @@ class Scenario(BaseScenario):
                         n_rays=15,
                         max_range=self._lidar_range,
                         entity_filter=entity_filter_agents,
-                        render_color=Color.BLUE,
+                        render_color=Color.WHITE,
                     ),
                 ],
             )
@@ -107,7 +107,14 @@ class Scenario(BaseScenario):
         return min_distance
 
     def reward(self, agent: Agent):
+        #return self.reward_pos(agent)
+        return self.reward_lidar(agent)
+
+    def reward_pos(self, agent: Agent):
         agents = self.world.agents
+        obs = agent.sensors[0].measure()
+        print(obs)
+        print(obs.shape)
         agents_without_agent = list(filter(lambda x: x != agent, agents))
         agents_positions = torch.stack([t.state.pos for t in agents_without_agent], dim=1)
         diffs = agents_positions - agent.state.pos.unsqueeze(1)
@@ -118,6 +125,23 @@ class Scenario(BaseScenario):
         # Calculate collision factor
         collision_factor = self.collisionFactor(distances)
         return cohesion_factor + collision_factor
+
+    def reward_lidar(self, agent: Agent):
+        obs = agent.sensors[0].measure()
+        min_distances = obs.min(dim=1, keepdim=True).values
+        max_distances = obs.max(dim=1, keepdim=True).values
+        mask = (min_distances > self.target_distance)
+        min_distances[mask] = 0.0
+        mask = (min_distances <= self.target_distance)
+        min_distances[mask] /= self.target_distance
+        min_distances[mask].log_()
+        min_distances[mask] *= 2
+        mask = (max_distances <= self.target_distance)
+        max_distances[mask] = 0.0
+        mask = (max_distances > self.target_distance)
+        max_distances[mask] -= self.target_distance
+        max_distances[mask] *= -1
+        return min_distances + max_distances
 
     def observation(self, agent: Agent):
         lidar_1_measures = agent.sensors[0].measure()
