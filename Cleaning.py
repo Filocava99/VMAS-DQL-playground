@@ -3,6 +3,7 @@ import typing
 from typing import Dict, Callable, List
 
 import torch
+import wandb
 from torch import Tensor
 
 from vmas import render_interactively
@@ -18,14 +19,18 @@ if typing.TYPE_CHECKING:
 
 class Scenario(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs) -> World:
+        self.wandb = kwargs.get("wandb", None)
         self.n_agents = kwargs.get("n_agents", 5)
         self.n_targets = kwargs.get("n_targets", 7)
+        self.active_targets = torch.full((batch_dim, 1), self.n_targets, device=device)
+        self.target_distance = kwargs.get("target_distance", 0.25)
         self._min_dist_between_entities = kwargs.get("min_dist_between_entities", 0.2)
-        self._lidar_range = kwargs.get("lidar_range", 0.35)
+        self._lidar_range = kwargs.get("lidar_range", 10)
         self._covering_range = kwargs.get("covering_range", 0.25)
         self._agents_per_target = kwargs.get("agents_per_target", 1)
         self.targets_respawn = kwargs.get("targets_respawn", True)
         self.shared_reward = kwargs.get("shared_reward", False)
+        self.n_targets_per_env = torch.full((batch_dim, 1), self.n_targets, device=device)
 
         self.agent_collision_penalty = kwargs.get("agent_collision_penalty", 0)
         self.covering_rew_coeff = kwargs.get("covering_rew_coeff", 1.0)
@@ -63,15 +68,15 @@ class Scenario(BaseScenario):
                 collide=True,
                 shape=Sphere(radius=self.agent_radius),
                 sensors=[
-                    # Lidar(
-                    #     world,
-                    #     angle_start=0.05,
-                    #     angle_end=2 * torch.pi + 0.05,
-                    #     n_rays=12,
-                    #     max_range=self._lidar_range,
-                    #     entity_filter=entity_filter_agents,
-                    #     render_color=Color.BLUE,
-                    # ),
+                    Lidar(
+                        world,
+                        angle_start=0.05,
+                        angle_end=2 * torch.pi + 0.05,
+                        n_rays=15,
+                        max_range=self._lidar_range,
+                        entity_filter=entity_filter_agents,
+                        render_color=Color.BLUE,
+                    ),
                     Lidar(
                         world,
                         n_rays=15,
@@ -121,32 +126,22 @@ class Scenario(BaseScenario):
         for target in self._targets[self.n_targets:]:
             target.set_pos(self.get_outside_pos(env_index), batch_index=env_index)
 
-    def reward(self, agent: Agent):
-        targets = self._targets
-        targets_positions = torch.stack([t.state.pos for t in targets], dim=1)
-        diffs = targets_positions - agent.state.pos.unsqueeze(1)
-        # Calculate Euclidean distance (L2 norm)
-        distances = torch.norm(diffs, dim=-1)
-        # Get the minimum distance and its index
-        min_distance, min_index = torch.min(distances, dim=-1)
-        covered_targets = (min_distance < self._covering_range).type(torch.int)
-        if self.world.batch_dim > 1:
-            min_distance -= min_distance.min(-1, keepdim=True)[0]
-            min_distance /= min_distance.max(-1, keepdim=True)[0]
-        min_distance = 1 - min_distance
-        min_distance[covered_targets != 0] = 100
-        self.respawn_targets(agent)
-        return min_distance
 
     def respawn_targets(self, agent: Agent):
         targets = self._targets
         targets_positions = torch.stack([t.state.pos for t in targets], dim=0)
-        diffs = targets_positions - agent.state.pos.unsqueeze(0)
-        # Calculate Euclidean distance (L2 norm)
-        distances = torch.norm(diffs, dim=-1)
-        in_range = distances < self._covering_range
-        for(i, target) in enumerate(targets):
-            target.state.pos[in_range[i]] = self.random_pos()[in_range[i]]
+        distances = []
+        expanded_agent_pos = agent.state.pos.unsqueeze(0)
+        distance = torch.norm(targets_positions - expanded_agent_pos, dim=-1).unsqueeze(-1)
+        for (i, target) in enumerate(targets):
+            for j in range(self.world.batch_dim):
+                if distance[i][j] < self.target_distance:
+                    target.set_pos(torch.tensor([-1000, -1000]), batch_index=j)
+                    self.active_targets[j] -= 1
+                    # bool_check = self.active_targets.flatten() == 0
+                    # if bool_check.all(True):
+                    #     self.done()
+                    #     return
 
     def random_pos(self):
         x_coord = torch.full((self.world.batch_dim, 1), random.uniform(-self.world.x_semidim, self.world.x_semidim))
@@ -154,75 +149,39 @@ class Scenario(BaseScenario):
         tensor = torch.cat((x_coord, y_coord), dim=1)
         return tensor
 
-    def first_reward(self, agent: Agent):
-        is_first = agent == self.world.agents[0]
-        is_last = agent == self.world.agents[-1]
+    def reward(self, agent: Agent):
+        # return self.reward_pos(agent)
+        return self.reward_lidar(agent)
 
-        if is_first:
-            self.time_rew = torch.full(
-                (self.world.batch_dim,), self.time_penalty, device=self.world.device
-            )
-            self.agents_pos = torch.stack(
-                [a.state.pos for a in self.world.agents], dim=1
-            )
-            self.targets_pos = torch.stack([t.state.pos for t in self._targets], dim=1)
-            self.agents_targets_dists = torch.cdist(self.agents_pos, self.targets_pos)
-            self.agents_per_target = torch.sum(
-                (self.agents_targets_dists < self._covering_range).type(torch.int),
-                dim=1,
-            )
-            self.covered_targets = self.agents_per_target >= self._agents_per_target
+    def reward_lidar(self, agent: Agent):
+        targets_lidar = agent.sensors[0].measure()
+        agents_lidar = agent.sensors[1].measure()
 
-            self.shared_covering_rew[:] = 0
-            for a in self.world.agents:
-                self.shared_covering_rew += self.agent_reward(a)
-            self.shared_covering_rew[self.shared_covering_rew != 0] /= 2
+        # reward for targets
+        min_distances = targets_lidar.min(dim=1, keepdim=True).values.float()
+        mask = min_distances < self._lidar_range
+        min_distances[~mask] = -self._lidar_range
+        temp = min_distances.float().clone()
+        temp[mask] = self._lidar_range
+        temp[mask] /= min_distances[mask]
+        targets_reward = temp
 
-        # Avoid collisions with each other
-        agent.collision_rew[:] = 0
-        for a in self.world.agents:
-            if a != agent:
-                agent.collision_rew[
-                    self.world.get_distance(a, agent) < self.min_collision_distance
-                    ] += self.agent_collision_penalty
+        # reward for agents
+        min_distances = agents_lidar.min(dim=1, keepdim=True).values.float()
+        mask = min_distances < self._lidar_range
+        min_distances[~mask] = self._lidar_range/4.0
+        temp = min_distances.float().clone()
+        temp[mask] = -self._lidar_range/4.0
+        temp[mask] /= min_distances[mask]
+        agents_reward = temp
 
-        if is_last:
-            if self.targets_respawn:
-                occupied_positions_agents = [self.agents_pos]
-                for i, target in enumerate(self._targets):
-                    occupied_positions_targets = [
-                        o.state.pos.unsqueeze(1)
-                        for o in self._targets
-                        if o is not target
-                    ]
-                    occupied_positions = torch.cat(
-                        occupied_positions_agents + occupied_positions_targets, dim=1
-                    )
-                    pos = ScenarioUtils.find_random_pos_for_entity(
-                        occupied_positions,
-                        env_index=None,
-                        world=self.world,
-                        min_dist_between_entities=self._min_dist_between_entities,
-                        x_bounds=(-self.world.x_semidim, self.world.x_semidim),
-                        y_bounds=(-self.world.y_semidim, self.world.y_semidim),
-                    )
-
-                    target.state.pos[self.covered_targets[:, i]] = pos[
-                        self.covered_targets[:, i]
-                    ].squeeze(1)
-            else:
-                self.all_time_covered_targets += self.covered_targets
-                for i, target in enumerate(self._targets):
-                    target.state.pos[self.covered_targets[:, i]] = self.get_outside_pos(
-                        None
-                    )[self.covered_targets[:, i]]
-        covering_rew = (
-            agent.covering_reward
-            if not self.shared_reward
-            else self.shared_covering_rew
-        )
-
-        return agent.collision_rew + covering_rew + self.time_rew
+        self.respawn_targets(agent)
+        final_reward = agents_reward + targets_reward
+        # print(agent.name)
+        # print(targets_reward)
+        # print(agents_reward)
+        # print(final_reward)
+        return final_reward
 
     def get_outside_pos(self, env_index):
         return torch.empty(
@@ -249,14 +208,13 @@ class Scenario(BaseScenario):
 
     def observation(self, agent: Agent):
         lidar_1_measures = agent.sensors[0].measure()
-        # lidar_2_measures = agent.sensors[1].measure()
+        lidar_2_measures = agent.sensors[1].measure()
         return torch.cat(
             [
                 agent.state.pos,  # 2
                 agent.state.vel,  # 2
-                # agent.state.pos, #15
-                lidar_1_measures,
-                # lidar_2_measures,
+                lidar_1_measures,  # 15
+                lidar_2_measures,  # 15
             ],
             dim=-1,
         )
