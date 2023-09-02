@@ -136,7 +136,7 @@ class Scenario(BaseScenario):
         for (i, target) in enumerate(targets):
             for j in range(self.world.batch_dim):
                 if distance[i][j] < self.target_distance:
-                    target.set_pos(torch.tensor([-1000, -1000]), batch_index=j)
+                    target.set_pos(torch.tensor([-10000, -10000]), batch_index=j)
                     self.active_targets[j] -= 1
                     # bool_check = self.active_targets.flatten() == 0
                     # if bool_check.all(True):
@@ -156,31 +156,41 @@ class Scenario(BaseScenario):
     def reward_lidar(self, agent: Agent):
         targets_lidar = agent.sensors[0].measure()
         agents_lidar = agent.sensors[1].measure()
+        #get distances from nearest target
+        targets_positions = torch.stack([t.state.pos for t in self._targets], dim=0)
+        min_distances = torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
+        t = min_distances.min(dim=0).values.float()
 
         # reward for targets
         min_distances = targets_lidar.min(dim=1, keepdim=True).values.float()
         mask = min_distances < self._lidar_range
-        min_distances[~mask] = -self._lidar_range
+        min_distances[~mask] = -t[~mask]
         temp = min_distances.float().clone()
         temp[mask] = self._lidar_range
         temp[mask] /= min_distances[mask]
         targets_reward = temp
 
         # reward for agents
-        min_distances = agents_lidar.min(dim=1, keepdim=True).values.float()
-        mask = min_distances < self._lidar_range
-        min_distances[~mask] = self._lidar_range/4.0
-        temp = min_distances.float().clone()
-        temp[mask] = -self._lidar_range/4.0
-        temp[mask] /= min_distances[mask]
-        agents_reward = temp
+        # min_distances = agents_lidar.min(dim=1, keepdim=True).values.float()
+        # mask = min_distances < self._lidar_range
+        # temp = min_distances.clone()
+        # temp[~mask] = -self._lidar_range/3.0
+        # temp[~mask] /= min_distances[~mask]
+        # min_distances[~mask] = temp[~mask]
+        # temp = min_distances.float().clone()
+        # temp[mask] = -self._lidar_range/3.0
+        # temp[mask] /= min_distances[mask]
+        # agents_reward = temp
 
         self.respawn_targets(agent)
-        final_reward = agents_reward + targets_reward
+        final_reward = targets_reward
         # print(agent.name)
         # print(targets_reward)
         # print(agents_reward)
         # print(final_reward)
+        for i in range(self.world.batch_dim):
+            if self.active_targets[i] == 0:
+                final_reward[i] = 0
         return final_reward
 
     def get_outside_pos(self, env_index):

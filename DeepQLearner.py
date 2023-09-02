@@ -64,16 +64,16 @@ class DeepQLearner:
             state_action_value = self.policy_network.forward(states)# .gather(dim=1, index=actions)
             state_action_value = state_action_value.gather(dim=1, index=actions_indexes.unsqueeze(1)) # TODO È giusto? Lo ha suggerito copilot lol
             next_state_values = self.target_network.forward(next_states).max(1)[0].detach()
-            expected_value = (next_state_values * self.gamma) + rewards
+            expected_value = (next_state_values.view(-1, 1) * self.gamma) + rewards
             criterion = SmoothL1Loss()
-            loss = criterion(state_action_value, expected_value.unsqueeze(1))
-            # Log scalar
+            loss = criterion(state_action_value, expected_value)
             loss.backward()
             self.last_loss = loss.item()
             torch.nn.utils.clip_grad_value_(self.policy_network.parameters(), 1.0)
             self.optimizer.step()
             self.updates += 1
             if self.updates % self.update_each == 0:
+                print("Updating target network")
                 self.target_network.load_state_dict(self.policy_network.state_dict())
 
     def snapshot(self, episode, agent_id):
