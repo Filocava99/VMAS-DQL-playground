@@ -25,7 +25,7 @@ class Scenario(BaseScenario):
         self.active_targets = torch.full((batch_dim, 1), self.n_targets, device=device)
         self.target_distance = kwargs.get("target_distance", 0.25)
         self._min_dist_between_entities = kwargs.get("min_dist_between_entities", 0.2)
-        self._lidar_range = kwargs.get("lidar_range", 10)
+        self._lidar_range = kwargs.get("lidar_range", 3)
         self._covering_range = kwargs.get("covering_range", 0.25)
         self._agents_per_target = kwargs.get("agents_per_target", 1)
         self.targets_respawn = kwargs.get("targets_respawn", True)
@@ -154,21 +154,37 @@ class Scenario(BaseScenario):
         return self.reward_lidar(agent)
 
     def reward_lidar(self, agent: Agent):
-        targets_lidar = agent.sensors[0].measure()
-        agents_lidar = agent.sensors[1].measure()
+        targets_lidar = agent.sensors[1].measure()
+        agents_lidar = agent.sensors[0].measure()
         #get distances from nearest target
         targets_positions = torch.stack([t.state.pos for t in self._targets], dim=0)
-        min_distances = torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
-        t = min_distances.min(dim=0).values.float()
+
+        min_distances_from_targets = torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
+        t = min_distances_from_targets.min(dim=0).values.float()
 
         # reward for targets
-        min_distances = targets_lidar.min(dim=1, keepdim=True).values.float()
-        mask = min_distances < self._lidar_range
-        min_distances[~mask] = -t[~mask]
-        temp = min_distances.float().clone()
-        temp[mask] = self._lidar_range
-        temp[mask] /= min_distances[mask]
-        targets_reward = temp
+        min_distances_from_lidar = targets_lidar.min(dim=1, keepdim=True).values.float()
+
+        #get a mask to select only the targets that are in range of the lidar
+        mask = min_distances_from_lidar < self._lidar_range
+        #if they are not in range set the distance to -distance from closest target
+        min_distances_from_lidar[~mask] = -(t[~mask]**2)
+
+        # now i have to set the value of the targets that are in target range to 1000
+
+        temp = min_distances_from_lidar.float().clone()[mask]
+
+        new_mask = temp < self.target_distance
+        temp[new_mask] = 1000
+        second_temp = temp.clone()
+        second_temp[~new_mask] = self._lidar_range
+        second_temp[~new_mask] /= temp[~new_mask]**2
+
+        temp[~new_mask] = second_temp[~new_mask]
+
+        min_distances_from_lidar[mask] = temp
+
+        targets_reward = min_distances_from_lidar
 
         # reward for agents
         # min_distances = agents_lidar.min(dim=1, keepdim=True).values.float()
@@ -190,6 +206,7 @@ class Scenario(BaseScenario):
         # print(final_reward)
         for i in range(self.world.batch_dim):
             if self.active_targets[i] == 0:
+                print("cacca")
                 final_reward[i] = 0
         return final_reward
 
