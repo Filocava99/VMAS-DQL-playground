@@ -207,7 +207,7 @@ class Scenario(BaseScenario):
         for i in range(self.world.batch_dim):
             if self.active_targets[i] == 0:
                 final_reward[i] = 0
-        return final_reward
+        return self.normalize(final_reward)
 
     def normalize(_value: torch.Tensor) -> torch.Tensor:
         return (_value + 100) / 1100
