@@ -23,9 +23,9 @@ class Scenario(BaseScenario):
         self.n_agents = kwargs.get("n_agents", 5)
         self.n_targets = kwargs.get("n_targets", 7)
         self.active_targets = torch.full((batch_dim, 1), self.n_targets, device=device)
-        self.target_distance = kwargs.get("target_distance", 0.25)
+        self.target_distance = kwargs.get("target_distance", 0.15)
         self._min_dist_between_entities = kwargs.get("min_dist_between_entities", 0.2)
-        self._lidar_range = kwargs.get("lidar_range", 3)
+        self._lidar_range = kwargs.get("lidar_range", 1.5)
         self._covering_range = kwargs.get("covering_range", 0.25)
         self._agents_per_target = kwargs.get("agents_per_target", 1)
         self.targets_respawn = kwargs.get("targets_respawn", True)
@@ -38,7 +38,7 @@ class Scenario(BaseScenario):
 
         self._comms_range = self._lidar_range
         self.min_collision_distance = 0.005
-        self.agent_radius = 0.05
+        self.agent_radius = 0.02
         self.target_radius = self.agent_radius
 
         self.viewer_zoom = 1
@@ -72,14 +72,14 @@ class Scenario(BaseScenario):
                         world,
                         angle_start=0.05,
                         angle_end=2 * torch.pi + 0.05,
-                        n_rays=15,
+                        n_rays=50,
                         max_range=self._lidar_range,
                         entity_filter=entity_filter_agents,
                         render_color=Color.BLUE,
                     ),
                     Lidar(
                         world,
-                        n_rays=15,
+                        n_rays=50,
                         max_range=self._lidar_range,
                         entity_filter=entity_filter_targets,
                         render_color=Color.GREEN,
@@ -206,9 +206,11 @@ class Scenario(BaseScenario):
         # print(final_reward)
         for i in range(self.world.batch_dim):
             if self.active_targets[i] == 0:
-                print("cacca")
                 final_reward[i] = 0
         return final_reward
+
+    def normalize(_value: torch.Tensor) -> torch.Tensor:
+        return (_value + 100) / 1100
 
     def get_outside_pos(self, env_index):
         return torch.empty(
@@ -265,7 +267,7 @@ class Scenario(BaseScenario):
         geoms: List[Geom] = []
         # Target ranges
         for i, target in enumerate(self._targets):
-            range_circle = rendering.make_circle(self._covering_range, filled=False)
+            range_circle = rendering.make_circle(self.target_distance, filled=False)
             xform = rendering.Transform()
             xform.set_translation(*target.state.pos[env_index])
             range_circle.add_attr(xform)
