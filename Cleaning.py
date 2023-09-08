@@ -17,6 +17,10 @@ if typing.TYPE_CHECKING:
     from vmas.simulator.rendering import Geom
 
 
+def normalize(_value: torch.Tensor) -> torch.Tensor:
+    return (_value + 100) / 1100
+
+
 class Scenario(BaseScenario):
     def make_world(self, batch_dim: int, device: torch.device, **kwargs) -> World:
         self.wandb = kwargs.get("wandb", None)
@@ -207,10 +211,7 @@ class Scenario(BaseScenario):
         for i in range(self.world.batch_dim):
             if self.active_targets[i] == 0:
                 final_reward[i] = 0
-        return self.normalize(final_reward)
-
-    def normalize(_value: torch.Tensor) -> torch.Tensor:
-        return (_value + 100) / 1100
+        return normalize(final_reward)
 
     def get_outside_pos(self, env_index):
         return torch.empty(
