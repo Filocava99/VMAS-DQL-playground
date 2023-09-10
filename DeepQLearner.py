@@ -86,7 +86,7 @@ class DeepQLearner:
         def _policy(state):
             with torch.no_grad():
                 tensor = state.view(1, len(state))
-                action_index = network.forward(tensor).max(1)[1].item()  # TODO .view(1,1).item() ?
+                action_index = network.forward(tensor).max(dim=-1)[1].item()
                 return action_space[action_index]
         return _policy
 
