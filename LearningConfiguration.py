@@ -43,7 +43,7 @@ class NNFactory(DQNAbstractFactory):
 
 @dataclass
 class LearningConfiguration:
-    epsilon: ExponentialDecay = ExponentialDecay(0.9, 0.01, 0.1)
+    epsilon: ExponentialDecay = ExponentialDecay(0.9, 0.01, 0.0025)
     gamma: float = 0.9
     learning_rate: float = 0.0005
     batch_size: int = 32

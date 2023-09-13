@@ -3,6 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 
+import Device
+
+
 class DQN(nn.Module):
     pass
 
@@ -16,7 +19,7 @@ class SimpleSequentialDQN(DQN):
             nn.Linear(hidden_size, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, output_size)
-        )
+        ).to(Device.get())
 
     def forward(self, x):
         return self.net(x)

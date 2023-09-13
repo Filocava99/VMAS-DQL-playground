@@ -3,6 +3,8 @@ import typing
 from typing import Dict, Callable, List
 
 import torch
+
+import Device
 import wandb
 from torch import Tensor
 
@@ -119,14 +121,14 @@ class Scenario(BaseScenario):
 
     def respawn_targets(self, agent: Agent):
         targets = self._targets
-        targets_positions = torch.stack([t.state.pos for t in targets], dim=0)
+        targets_positions = torch.stack([t.state.pos for t in targets], dim=0).to(Device.get())
         distances = []
         expanded_agent_pos = agent.state.pos.unsqueeze(0)
-        distance = torch.norm(targets_positions - expanded_agent_pos, dim=-1).unsqueeze(-1)
+        distance = torch.norm(targets_positions - expanded_agent_pos, dim=-1).unsqueeze(-1).to(Device.get())
         for (i, target) in enumerate(targets):
             for j in range(self.world.batch_dim):
                 if distance[i][j] < self.target_distance:
-                    target.set_pos(torch.tensor([-10000, -10000]), batch_index=j)
+                    target.set_pos(torch.tensor([-10000, -10000]).to(Device.get()), batch_index=j)
                     self.active_targets[j] -= 1
                     # bool_check = self.active_targets.flatten() == 0
                     # if bool_check.all(True):
@@ -143,13 +145,14 @@ class Scenario(BaseScenario):
         # return self.reward_pos(agent)
         return self.reward_lidar(agent)
 
-    def _reward_lidar(self, agent: Agent):
+    def reward_lidar(self, agent: Agent):
         targets_lidar = agent.sensors[1].measure()
         agents_lidar = agent.sensors[0].measure()
         # get distances from nearest target
-        targets_positions = torch.stack([t.state.pos for t in self._targets], dim=0)
+        targets_positions = torch.stack([t.state.pos for t in self._targets], dim=0).to(Device.get())
 
-        min_distances_from_targets = torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
+        min_distances_from_targets = (torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
+                                      .to(Device.get()))
         t = min_distances_from_targets.min(dim=0).values.float()
 
         # reward for targets
@@ -159,22 +162,23 @@ class Scenario(BaseScenario):
         mask = min_distances_from_lidar < self._lidar_range
         # if they are not in range set the distance to -distance from closest target
 
-        rewards_for_agents_outside_lidar_range = -torch.exp(-t[~mask])
-
-        min_distances_from_lidar[~mask] = rewards_for_agents_outside_lidar_range  # -(t[~mask]**2)
+        if (~mask).any():
+            rewards_for_agents_outside_lidar_range = -torch.exp(-t[~mask]).to(Device.get())
+            min_distances_from_lidar[~mask] = rewards_for_agents_outside_lidar_range  # -(t[~mask]**2)
 
         # now i have to set the value of the targets that are in target range to 1000
 
         temp = min_distances_from_lidar.float().clone()[mask]
 
         new_mask = temp < self.target_distance
-        temp[new_mask] = 1
-        rewards_for_agents_inside_lidar_range = torch.sigmoid(temp[~new_mask])
+        if new_mask.any():
+            temp[new_mask] = 1
         # second_temp = temp.clone()
         # second_temp[~new_mask] = self._lidar_range
         # second_temp[~new_mask] /= temp[~new_mask]**2
-
-        temp[~new_mask] = rewards_for_agents_inside_lidar_range
+        if (~new_mask).any():
+            rewards_for_agents_inside_lidar_range = -torch.exp(-t[~new_mask]).to(Device.get())/2#torch.sigmoid(temp[~new_mask]).to(Device.get())
+            temp[~new_mask] = rewards_for_agents_inside_lidar_range
 
         min_distances_from_lidar[mask] = temp
 
@@ -204,12 +208,13 @@ class Scenario(BaseScenario):
 
         return final_reward
 
-    def reward_lidar(self, agent: Agent):
+    def _reward_lidar(self, agent: Agent):
         targets_lidar = agent.sensors[1].measure()
         agents_lidar = agent.sensors[0].measure()
         # get distances from nearest target
-        targets_positions = torch.stack([t.state.pos for t in self._targets], dim=0)
-        distances_from_targets = torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
+        targets_positions = torch.stack([t.state.pos for t in self._targets], dim=0).to(Device.get())
+        distances_from_targets = (torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
+                                  .to(Device.get()))
         closest_distance_from_target = distances_from_targets.min(dim=0).values.float()
 
         # reward for targets
@@ -219,7 +224,8 @@ class Scenario(BaseScenario):
         # get a mask to select only the targets that are in range of the lidar
         inside_lidar_mask = min_distances_from_lidar < self._lidar_range
         # if they are not in range set the distance to -distance from closest target
-        rewards_for_agents_outside_lidar_range = -torch.exp(-closest_distance_from_target[~inside_lidar_mask])
+        rewards_for_agents_outside_lidar_range = -(torch.exp(-closest_distance_from_target[~inside_lidar_mask])
+                                                   .to(Device.get()))
 
         if (~inside_lidar_mask).any():
             min_distances_from_lidar[~inside_lidar_mask] = rewards_for_agents_outside_lidar_range
@@ -287,10 +293,11 @@ class Scenario(BaseScenario):
                 lidar_2_measures,  # 15
             ],
             dim=-1,
-        )
+        ).to(Device.get())
 
     def info(self, agent: Agent) -> Dict[str, Tensor]:
         info = {
+            "active_targets": self.active_targets
         }
         return info
 

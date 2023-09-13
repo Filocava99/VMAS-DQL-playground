@@ -8,9 +8,11 @@ from typing import List, Type
 
 from torch.nn import SmoothL1Loss
 
+import Device
 from DQN import SimpleSequentialDQN
 from LearningConfiguration import LearningConfiguration
 from ReplayBuffer import ReplayBuffer
+import Device
 
 
 class DeepQLearner:
@@ -24,8 +26,7 @@ class DeepQLearner:
         self.gamma = learning_configuration.gamma
         self.update_each = learning_configuration.update_each
         self.updates = 0
-        self.device = torch.device('cuda' if torch.cuda.is_available() else "mps"
-        if torch.backends.mps.is_available() else 'cpu')
+        self.device = torch.device(Device.get())
         self.target_network = learning_configuration.dqn_factory.createNN()
         self.policy_network = learning_configuration.dqn_factory.createNN()
         self.targetPolicy = DeepQLearner.policy_from_network(self.policy_network, action_space)
@@ -49,18 +50,18 @@ class DeepQLearner:
     def improve(self):
         memory_sample = self.memory.subsample(self.batch_size)
         if len(memory_sample) == self.batch_size:
-            states = torch.stack(list(map(lambda x: x.actualState, memory_sample)))
+            states = torch.stack(list(map(lambda x: x.actualState, memory_sample))).to(Device.get())
             actions_list = list(map(lambda x: x.action, memory_sample))
             # actions = torch.stack(actions_list)
-            rewards = torch.stack(list(map(lambda x: x.reward, memory_sample)))
-            next_states = torch.stack(list(map(lambda x: x.nextState, memory_sample)))
+            rewards = torch.stack(list(map(lambda x: x.reward, memory_sample))).to(Device.get())
+            next_states = torch.stack(list(map(lambda x: x.nextState, memory_sample))).to(Device.get())
             actions_indexes = []
             for action in actions_list:
                 for i in range(len(self.action_space)):
                     if torch.equal(action, self.action_space[i]):
                         actions_indexes.append(i)
                         break
-            actions_indexes = torch.tensor(actions_indexes).long()# .view(-1, 1)
+            actions_indexes = torch.tensor(actions_indexes).long().to(Device.get())# .view(-1, 1)
             state_action_value = self.policy_network.forward(states)# .gather(dim=1, index=actions)
             state_action_value = state_action_value.gather(dim=1, index=actions_indexes.unsqueeze(1)) # TODO È giusto? Lo ha suggerito copilot lol
             next_state_values = self.target_network.forward(next_states).max(1)[0].detach()
