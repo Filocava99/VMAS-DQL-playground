@@ -6,7 +6,7 @@ import torch
 
 import Device
 import wandb
-from torch import Tensor
+from torch import Tensor, tensor
 
 from vmas import render_interactively
 from vmas.simulator.core import Agent, Landmark, Sphere, World, Entity
@@ -38,6 +38,7 @@ class Scenario(BaseScenario):
         self.target_distance = kwargs.get("target_distance", 0.25)
         self._min_dist_between_entities = kwargs.get("min_dist_between_entities", 0.2)
         self._lidar_range = kwargs.get("lidar_range", 1.5)
+        self.targets_pos = kwargs.get("targets_pos", [tensor([0, 0], device=Device.get())] * self.n_targets)
         self.n_targets_per_env = torch.full((batch_dim, 1), self.n_targets, device=device)
 
         self.min_collision_distance = 0.005
@@ -103,6 +104,8 @@ class Scenario(BaseScenario):
             )
             world.add_landmark(target)
             self._targets.append(target)
+            for j in range(batch_dim):
+                target.set_pos(self.targets_pos[i], j)
 
         return world
 
@@ -150,37 +153,21 @@ class Scenario(BaseScenario):
         agents_lidar = agent.sensors[0].measure()
         # get distances from nearest target
         targets_positions = torch.stack([t.state.pos for t in self._targets], dim=0).to(Device.get())
-
         min_distances_from_targets = (torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
                                       .to(Device.get()))
-        t = min_distances_from_targets.min(dim=0).values.float()
-
-        # reward for targets
+        t = min_distances_from_targets.min(dim=0).values.float().squeeze(0)
         min_distances_from_lidar = targets_lidar.min(dim=1, keepdim=True).values.float()
-
-        # get a mask to select only the targets that are in range of the lidar
-        mask = min_distances_from_lidar < self._lidar_range
-        # if they are not in range set the distance to -distance from closest target
-
-        if (~mask).any():
-            rewards_for_agents_outside_lidar_range = -torch.exp(-t[~mask]).to(Device.get())
-            min_distances_from_lidar[~mask] = rewards_for_agents_outside_lidar_range  # -(t[~mask]**2)
-
-        # now i have to set the value of the targets that are in target range to 1000
-
-        temp = min_distances_from_lidar.float().clone()[mask]
-
-        new_mask = temp < self.target_distance
-        if new_mask.any():
-            temp[new_mask] = 1
-        # second_temp = temp.clone()
-        # second_temp[~new_mask] = self._lidar_range
-        # second_temp[~new_mask] /= temp[~new_mask]**2
-        if (~new_mask).any():
-            rewards_for_agents_inside_lidar_range = -torch.exp(-t[~new_mask]).to(Device.get())/2#torch.sigmoid(temp[~new_mask]).to(Device.get())
-            temp[~new_mask] = rewards_for_agents_inside_lidar_range
-
-        min_distances_from_lidar[mask] = temp
+        mask = min_distances_from_lidar > self._lidar_range
+        if mask.any():
+            #rewards_for_agents_outside_lidar_range = -torch.exp(-t[mask]).to(Device.get())
+            min_distances_from_lidar[mask] = torch.exp(-t[mask]).to(Device.get()) #rewards_for_agents_outside_lidar_range  # -(t[~mask]**2)
+        mask = min_distances_from_lidar < self.target_distance
+        if mask.any():
+            min_distances_from_lidar[mask] = 1
+        mask = (min_distances_from_lidar > self.target_distance) & (min_distances_from_lidar < self._lidar_range)
+        if mask.any():
+            #rewards_for_agents_inside_lidar_range = -torch.exp(-t[mask]).to(Device.get())/2#torch.sigmoid(temp[~new_mask]).to(Device.get())
+            min_distances_from_lidar[mask] = -torch.exp(-t[mask]).to(Device.get())/2 #rewards_for_agents_inside_lidar_range
 
         targets_reward = min_distances_from_lidar
 
@@ -240,9 +227,9 @@ class Scenario(BaseScenario):
             reduced_distances_mask = distances_not_in_target_distance < agent.prev_distances[~inside_target_distance_mask].squeeze(0)
             rewards_for_agents_inside_lidar_range = torch.sigmoid(distances_not_in_target_distance)
             if reduced_distances_mask.any():
-                distances_not_in_target_distance[reduced_distances_mask] = rewards_for_agents_inside_lidar_range[reduced_distances_mask]
+                distances_not_in_target_distance[reduced_distances_mask] = 0.2 #rewards_for_agents_inside_lidar_range[reduced_distances_mask]
             if (~reduced_distances_mask).any():
-                distances_not_in_target_distance[~reduced_distances_mask] = -rewards_for_agents_inside_lidar_range[~reduced_distances_mask]
+                distances_not_in_target_distance[~reduced_distances_mask] = -0.2 #-rewards_for_agents_inside_lidar_range[~reduced_distances_mask]
             inside_lidar_distances[~inside_target_distance_mask] = distances_not_in_target_distance
 
         min_distances_from_lidar[inside_lidar_mask] = inside_lidar_distances
