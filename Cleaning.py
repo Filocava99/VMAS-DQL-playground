@@ -1,3 +1,4 @@
+import math
 import random
 import typing
 from typing import Dict, Callable, List
@@ -149,6 +150,7 @@ class Scenario(BaseScenario):
         return self.reward_lidar(agent)
 
     def reward_lidar(self, agent: Agent):
+        k = 8
         targets_lidar = agent.sensors[1].measure()
         agents_lidar = agent.sensors[0].measure()
         # get distances from nearest target
@@ -160,14 +162,14 @@ class Scenario(BaseScenario):
         mask = min_distances_from_lidar > self._lidar_range
         if mask.any():
             #rewards_for_agents_outside_lidar_range = -torch.exp(-t[mask]).to(Device.get())
-            min_distances_from_lidar[mask] = torch.exp(-t[mask]).to(Device.get()) #rewards_for_agents_outside_lidar_range  # -(t[~mask]**2)
+            min_distances_from_lidar[mask] = -(2/math.pi) * (torch.atan(k * t[mask]).to(Device.get())) #rewards_for_agents_outside_lidar_range  # -(t[~mask]**2)
         mask = min_distances_from_lidar < self.target_distance
         if mask.any():
             min_distances_from_lidar[mask] = 1
         mask = (min_distances_from_lidar > self.target_distance) & (min_distances_from_lidar < self._lidar_range)
         if mask.any():
             #rewards_for_agents_inside_lidar_range = -torch.exp(-t[mask]).to(Device.get())/2#torch.sigmoid(temp[~new_mask]).to(Device.get())
-            min_distances_from_lidar[mask] = -torch.exp(-t[mask]).to(Device.get())/2 #rewards_for_agents_inside_lidar_range
+            min_distances_from_lidar[mask] = -(1/math.pi) * (torch.atan(k * t[mask]).to(Device.get()))#-torch.exp(-t[mask]).to(Device.get())/2 #rewards_for_agents_inside_lidar_range
 
         targets_reward = min_distances_from_lidar
 
