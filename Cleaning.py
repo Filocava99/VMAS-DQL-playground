@@ -159,17 +159,17 @@ class Scenario(BaseScenario):
                                       .to(Device.get()))
         t = min_distances_from_targets.min(dim=0).values.float().squeeze(0)
         min_distances_from_lidar = targets_lidar.min(dim=1, keepdim=True).values.float()
-        mask = min_distances_from_lidar > self._lidar_range
+        mask = min_distances_from_lidar >= self._lidar_range
         if mask.any():
             #rewards_for_agents_outside_lidar_range = -torch.exp(-t[mask]).to(Device.get())
-            min_distances_from_lidar[mask] = -(2/math.pi) * (torch.atan(k * t[mask]).to(Device.get())) #rewards_for_agents_outside_lidar_range  # -(t[~mask]**2)
-        mask = min_distances_from_lidar < self.target_distance
+            min_distances_from_lidar[mask] = -1 #-(2/math.pi) * (torch.atan(k * t[mask]).to(Device.get())) #rewards_for_agents_outside_lidar_range  # -(t[~mask]**2)
+        mask = min_distances_from_lidar <= self.target_distance
         if mask.any():
             min_distances_from_lidar[mask] = 1
         mask = (min_distances_from_lidar > self.target_distance) & (min_distances_from_lidar < self._lidar_range)
         if mask.any():
             #rewards_for_agents_inside_lidar_range = -torch.exp(-t[mask]).to(Device.get())/2#torch.sigmoid(temp[~new_mask]).to(Device.get())
-            min_distances_from_lidar[mask] = -(1/math.pi) * (torch.atan(k * t[mask]).to(Device.get()))#-torch.exp(-t[mask]).to(Device.get())/2 #rewards_for_agents_inside_lidar_range
+            min_distances_from_lidar[mask] = -(2/math.pi) * (torch.atan(k * t[mask]).to(Device.get()))#-torch.exp(-t[mask]).to(Device.get())/2 #rewards_for_agents_inside_lidar_range
 
         targets_reward = min_distances_from_lidar
 
