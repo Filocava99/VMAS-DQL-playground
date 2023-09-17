@@ -79,8 +79,8 @@ class DeepQLearner:
 
     def snapshot(self, episode, agent_id):
         time_mark = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-        #torch.save(self.target_network.state_dict(),
-                   #f"{self.learning_configuration.snapshot_path}-{episode}-{time_mark}-agent-{agent_id}")
+        torch.save(self.target_network.state_dict(),
+                   f"{self.learning_configuration.snapshot_path}-{episode}-{time_mark}-agent-{agent_id}")
 
     @staticmethod
     def policy_from_network(network, action_space):

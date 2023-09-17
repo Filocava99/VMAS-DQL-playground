@@ -160,7 +160,7 @@ class Scenario(BaseScenario):
         targets_positions = torch.stack([t.state.pos for t in self._targets], dim=0).to(Device.get())
         min_distances_from_targets = (torch.norm(targets_positions - agent.state.pos.unsqueeze(0), dim=-1).unsqueeze(-1)
                                       .to(Device.get()))
-        t = min_distances_from_targets.min(dim=0).values.float().squeeze(0)
+        t = min_distances_from_targets.min(dim=0).values.float().squeeze(0).view(self.world.batch_dim, 1)
         min_distances_from_lidar = targets_lidar.min(dim=1, keepdim=True).values.float()
         final_rewards = min_distances_from_lidar.clone().to(Device.get())
         mask = min_distances_from_lidar >= self._lidar_range
