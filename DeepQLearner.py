@@ -31,7 +31,7 @@ class DeepQLearner:
         self.policy_network = learning_configuration.dqn_factory.createNN()
         self.targetPolicy = DeepQLearner.policy_from_network(self.policy_network, action_space)
         self.behaviouralPolicy = DeepQLearner.policy_from_network(self.policy_network, action_space)
-        self.optimizer = optim.RMSprop(self.policy_network.parameters(), self.learning_rate)
+        self.optimizer = optim.Adam(self.policy_network.parameters(), self.learning_rate)
         self.last_loss = 0
 
     def record(self, state, action, reward, next_state):
@@ -73,7 +73,7 @@ class DeepQLearner:
             torch.nn.utils.clip_grad_value_(self.policy_network.parameters(), 1.0)
             self.optimizer.step()
             self.updates += 1
-            if self.updates % self.update_each == 0:
+            if self.updates+1 % self.update_each == 0:
                 print("Updating target network")
                 self.target_network.load_state_dict(self.policy_network.state_dict())
 
@@ -81,6 +81,9 @@ class DeepQLearner:
         time_mark = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         torch.save(self.target_network.state_dict(),
                    f"{self.learning_configuration.snapshot_path}-{episode}-{time_mark}-agent-{agent_id}")
+
+    def load_snapshot(self, path):
+        self.target_network.load_state_dict(torch.load(path))
 
     @staticmethod
     def policy_from_network(network, action_space):
