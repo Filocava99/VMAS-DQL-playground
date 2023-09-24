@@ -41,11 +41,10 @@ class Scenario(BaseScenario):
         self._lidar_range = kwargs.get("lidar_range", 1.5)
         self.targets_pos = kwargs.get("targets_pos", [tensor([0, 0], device=Device.get())] * self.n_targets)
         self.n_targets_per_env = torch.full((batch_dim, 1), self.n_targets, device=device)
-
         self.min_collision_distance = 0.005
         self.agent_radius = 0.06
         self.target_radius = self.agent_radius
-
+        self._comms_range = self.agent_radius * 2
         self.viewer_zoom = 1
         self.target_color = Color.GREEN
 
