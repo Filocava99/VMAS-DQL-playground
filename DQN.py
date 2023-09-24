@@ -24,6 +24,24 @@ class SimpleSequentialDQN(DQN):
     def forward(self, x):
         return self.net(x)
 
+class ComplexSequentialDQN(DQN):
+    def __init__(self, input_size, hidden_size, output_size):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, 2*hidden_size),
+            nn.ReLU(),
+            nn.Linear(2*hidden_size, 2*hidden_size),
+            nn.ReLU(),
+            nn.Linear(2*hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, output_size)
+        ).to(Device.get())
+
+    def forward(self, x):
+        return self.net(x)
+
 
 class LSTM_RNN(DQN):
     def __init__(self, input_dim, hidden_dim, output_dim, n_layers=2, drop_prob=0.2):
@@ -36,17 +54,23 @@ class LSTM_RNN(DQN):
         self.dropout = nn.Dropout(drop_prob)
         self.fc = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x, hidden):
+        self.hidden = None
+
+    def forward(self, x):
+        # Init hidden state if it isn't set
+        if self.hidden is None:
+            self.hidden = self.init_hidden(x.size(0), x.device)
+
         # x (batch_size, seq_length, input_dim)
         # hidden (n_layers, batch_size, hidden_dim)
         # r_out (batch_size, time_step, hidden_size)
-        r_out, hidden = self.lstm(x, hidden)
+        r_out, self.hidden = self.lstm(x, self.hidden)
         r_out = r_out.view(-1, self.hidden_dim)
 
         out = self.dropout(r_out)
         out = self.fc(out)
 
-        return out, hidden
+        return out
 
     def init_hidden(self, batch_size, device='cpu'):
         weight = next(self.parameters()).data

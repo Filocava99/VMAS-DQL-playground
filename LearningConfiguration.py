@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import Any
 
-from DQN import SimpleSequentialDQN
+from DQN import SimpleSequentialDQN, LSTM_RNN, ComplexSequentialDQN
 
 
 class ExponentialDecay:
@@ -39,14 +39,15 @@ class NNFactory(DQNAbstractFactory):
         self.output = output
 
     def createNN(self):
-        return SimpleSequentialDQN(self.input, self.hidden, self.output)
+        #return SimpleSequentialDQN(self.input, self.hidden, self.output)
+        return ComplexSequentialDQN(self.input, self.hidden, self.output)
 
 @dataclass
 class LearningConfiguration:
-    epsilon: ExponentialDecay = ExponentialDecay(0.9, 0.01, 0.0025)
+    epsilon: ExponentialDecay = ExponentialDecay(0.9, 0.01, 0.0005)
     gamma: float = 0.9
     learning_rate: float = 0.0005
-    batch_size: int = 32
+    batch_size: int = 64
     update_each: int = 100
     random: int = 1
     dqn_factory: DQNAbstractFactory = None

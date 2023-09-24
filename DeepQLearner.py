@@ -61,9 +61,10 @@ class DeepQLearner:
                     if torch.equal(action, self.action_space[i]):
                         actions_indexes.append(i)
                         break
-            actions_indexes = torch.tensor(actions_indexes).long().to(Device.get())# .view(-1, 1)
-            state_action_value = self.policy_network.forward(states)# .gather(dim=1, index=actions)
-            state_action_value = state_action_value.gather(dim=1, index=actions_indexes.unsqueeze(1)) # TODO È giusto? Lo ha suggerito copilot lol
+            actions_indexes = torch.tensor(actions_indexes).long().to(Device.get())  # .view(-1, 1)
+            state_action_value = self.policy_network.forward(states)  # .gather(dim=1, index=actions)
+            state_action_value = state_action_value.gather(dim=1, index=actions_indexes.unsqueeze(
+                1))  # TODO È giusto? Lo ha suggerito copilot lol
             next_state_values = self.target_network.forward(next_states).max(1)[0].detach()
             expected_value = (next_state_values.view(-1, 1) * self.gamma) + rewards
             criterion = SmoothL1Loss()
@@ -73,7 +74,7 @@ class DeepQLearner:
             torch.nn.utils.clip_grad_value_(self.policy_network.parameters(), 1.0)
             self.optimizer.step()
             self.updates += 1
-            if self.updates+1 % self.update_each == 0:
+            if self.updates % self.update_each == 0:
                 print("Updating target network")
                 self.target_network.load_state_dict(self.policy_network.state_dict())
 
@@ -85,6 +86,10 @@ class DeepQLearner:
     def load_snapshot(self, path):
         self.target_network.load_state_dict(torch.load(path))
 
+    def load_snapshot(self, path):
+        self.target_network.load_state_dict(torch.load(path))
+        self.policy_network.load_state_dict(torch.load(path))
+
     @staticmethod
     def policy_from_network(network, action_space):
         def _policy(state):
@@ -92,6 +97,7 @@ class DeepQLearner:
                 tensor = state.view(1, len(state))
                 action_index = network.forward(tensor).max(dim=-1)[1].item()
                 return action_space[action_index]
+
         return _policy
 
 
