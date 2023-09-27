@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import Any
 
-from DQN import SimpleSequentialDQN, LSTM_RNN, ComplexSequentialDQN
+from DQN import SimpleSequentialDQN, ComplexSequentialDQN, FusedLSTMPolicy
 
 
 class ExponentialDecay:
@@ -40,7 +40,7 @@ class NNFactory(DQNAbstractFactory):
 
     def createNN(self):
         #return SimpleSequentialDQN(self.input, self.hidden, self.output)
-        return ComplexSequentialDQN(self.input, self.hidden, self.output)
+        return FusedLSTMPolicy(self.input, self.hidden, self.output)
 
 @dataclass
 class LearningConfiguration:

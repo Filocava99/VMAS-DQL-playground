@@ -8,8 +8,8 @@ from abc import ABC, abstractmethod
 class Experience:
     actualState: Any
     action: Any
-    reward: float
     nextState: Any
+    reward: float = 0.0
 
 
 class ReplayBuffer(ABC):
@@ -24,6 +24,10 @@ class ReplayBuffer(ABC):
 
     @abstractmethod
     def subsample(self, batchSize: int) -> List[Experience]:
+        pass
+
+    @abstractmethod
+    def get_last(self, number: int) -> List[Experience]:
         pass
 
     @abstractmethod
@@ -44,11 +48,14 @@ class BoundedQueue(ReplayBuffer):
         self._queue = []
 
     def insert(self, actualState: Any, action: Any, reward: float, nextState: Any) -> None:
-        self._queue.insert(0, Experience(actualState, action, reward, nextState))
+        self._queue.insert(0, Experience(actualState, action, nextState, reward))
         self._queue = self._queue[:self._bufferSize]
 
     def subsample(self, batchSize: int) -> List[Experience]:
         return random.sample(self._queue, batchSize) #Need to specify seed? On Scarlib is 42
+
+    def get_last(self, number: int) -> List[Experience]:
+        return self._queue[:number]
 
     def getAll(self) -> List[Experience]:
         return self._queue
